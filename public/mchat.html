@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Python Script Runner</title>
+  <style>
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .output {
+      width: 90%;
+      height: 80%;
+      line-height: normal;
+      /* font-size: normal; 
+      text-align: center;
+      margin-top: 10px;
+      padding: 10px; */
+    }
+
+    .input-group {
+      width: 90%;
+      display: flex;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    #input {
+      width: 95%;
+      height: 40px;
+      font-size: larger;
+      padding: 10px;
+      overflow-y: scroll;
+      overflow-x: hidden;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
+    button {
+      width: 60px;
+      height: 40px;
+      font-size: larger;
+      margin-left: 10px;
+      /* margin-right: 10px; */
+      text-align: center;
+      padding: 0px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+
+    #output {
+      overflow-y: scroll;
+      overflow-x: hidden;
+      max-height: 95%;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      font-size: larger;
+      overflow: auto
+    }
+
+    .alert {
+      height: 20px;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+
+    #alert {
+      height: 20px;
+      text-align: center;
+    }
+
+    #con-alert {
+      display: inline-block;
+      /* font-weight: bold; */
+    }
+
+    .message {
+      margin-bottom: normal;
+      font-size: larger;
+      line-height: normal;
+    }
+
+    .username {
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="output">
+      <pre id="output"></pre>
+    </div>
+    <div class="alert">
+      <span style="display: inline-block; padding: 0 10px;">
+        <span id="con-light"
+          style="display: inline-block; width: 10px; height: 10px; background-color: red; border-radius: 50%;"></span>
+        <label id="con-alert"></label>
+      </span>
+      <span style="display: inline-block; padding: 0 10px;">
+        <span id="serv-light"
+          style="display: inline-block; width: 10px; height: 10px; background-color: red; border-radius: 50%;"></span>
+        <label id="serv-alert"></label>
+      </span>
+    </div>
+    <div class="contrl-group">
+      <button id="prompt-button">Prmt</button>
+      <button id="toggleSound">Unmu</button>
+      <button id="con-button">Con</button>
+    </div>
+    <div class="input-group">
+      <textarea id="input"></textarea>
+      <button id="run-button">Run</button>
+    </div>
+  </div>
+  <script src="https://code.responsivevoice.org/responsivevoice.js"></script>
+  <script>
+    const prmtButton = document.getElementById("prompt-button");
+    const voiceButton = document.getElementById("toggleSound");
+    const runButton = document.getElementById("run-button");
+    const conButton = document.getElementById("con-button");
+    const input = document.getElementById("input");
+    const output = document.getElementById("output");
+    const conLight = document.getElementById("con-light");
+    const conAlert = document.getElementById("con-alert");
+    const servLight = document.getElementById("serv-light");
+    const servAlert = document.getElementById("serv-alert");
+    let connected = false;
+    let serverActive = false;
+    function setConStatusActive(active) {
+      if (active) {
+        conLight.style.backgroundColor = "green";
+        conAlert.innerHTML = '<span style="color: green;">Connected</span>';
+        connected = true;
+      } else {
+        conLight.style.backgroundColor = "red";
+        conAlert.innerHTML = '<span style="color: red;">Disonnected!</span>';
+        connected = false;
+      }
+    }
+    function setServerStatusActive(active) {
+      if (active) {
+        servLight.style.backgroundColor = "green";
+        servAlert.innerHTML = '<span style="color: green;">Active</span>';
+        serverActive = true;
+      } else {
+        servLight.style.backgroundColor = "red";
+        servAlert.innerHTML = '<span style="color: red;">Error!</span>';
+        serverActive = false;
+      }
+    }
+    let socket;
+    var timer;
+    let servTimer;
+    let answer = '';
+    let allowSpeak = false;
+    let isConnecting = false;
+    // 创建websocket并注册消息处理函数
+    function webSocketConnect() {
+      socket = new WebSocket('wss://ai.daizhu.one/websocket/');
+      socket.onopen = function () {
+        console.log('WebSocket连接成功！');
+        setConStatusActive(true);
+        setServerStatusActive(true);
+        conButton.disabled = true;
+        conButton.style.backgroundColor = "gray";
+        runButton.disabled = false;
+        runButton.style.backgroundColor = "";
+        // 发送心跳消息
+        timer = setInterval(function ping() {
+          socket.send('');
+        }, 15000);
+      };
+      socket.addEventListener('close', function () {
+        console.log('WebSocket连接关闭！');
+        setConStatusActive(false);
+        setServerStatusActive(false);
+        conButton.disabled = false;
+        conButton.style.backgroundColor = "";
+        runButton.disabled = true;
+        runButton.style.backgroundColor = "gray";
+        clearInterval(timer);
+      });
+      socket.addEventListener('message', (event) => {
+        //console.log('received:' + event.data);
+        runButton.disabled = true;
+        runButton.style.backgroundColor = "gray";
+        //var endIndex = event.data.indexOf('\0');
+        var endbyte = event.data[event.data.length - 1];
+        let text = event.data;
+        if (endbyte === '\xff') {
+          // server端出现错误
+          runButton.disabled = false;
+          runButton.style.backgroundColor = "";
+          output.scrollTop = output.scrollHeight;
+          setServerStatusActive(false);
+        } else if (endbyte === '\xef') {
+          // 清除error
+          setServerStatusActive(true);
+          runButton.disabled = false;
+          runButton.style.backgroundColor = "";
+        }
+        else {
+          answer += text;
+          if (endbyte === '\0') {
+            // 接收数据结束
+            text = text.slice(0, -1);
+            text += "\nover!\n\n"
+
+            if(allowSpeak){
+              //responsiveVoice.speak(answer, 'UK English Female');
+              responsiveVoice.speak(answer, 'Chinese Male');
+            }
+            answer = '';
+
+            runButton.disabled = false;
+            runButton.style.backgroundColor = "";
+          } 
+          // 把接收到的数据显示到输出栏
+          var messageText = document.createElement("span");
+          messageText.style.fontSize = 'larger';
+          messageText.textContent = text;
+          output.appendChild(messageText);
+          output.scrollTop = output.scrollHeight;
+        }
+      });
+    }
+    webSocketConnect();
+
+    // 点击run按钮时发送数据给服务器
+    runButton.addEventListener("click", function () {
+      var lineBreak1 = document.createElement("br");
+      var lineBreak2 = document.createElement("br");
+      var lineBreak3 = document.createElement("br");
+      var messageElement = document.createElement("div");
+      messageElement.classList.add("message");
+
+      var usernameElement = document.createElement("span");
+      usernameElement.classList.add("username");
+      usernameElement.textContent = "User:";
+
+      var messageText = document.createElement("span");
+      messageText.textContent = input.value;
+
+      var responderElement = document.createElement("span");
+      responderElement.classList.add("username");
+      responderElement.textContent = "ChatGPT:";
+
+      messageElement.appendChild(usernameElement);
+      messageElement.appendChild(lineBreak1);
+      messageElement.appendChild(messageText);
+      messageElement.appendChild(lineBreak2);
+      messageElement.appendChild(lineBreak3);
+      messageElement.appendChild(responderElement);
+
+      output.appendChild(messageElement);
+
+      socket.send(input.value);
+      input.value = "";
+      output.scrollTop = output.scrollHeight;
+    });
+    runButton.addEventListener("mousedown", function () {
+      runButton.style.backgroundColor = "blue";
+    });
+    runButton.addEventListener("mouseup", function () {
+      runButton.style.backgroundColor = "";
+    });
+
+    // 输入框内点击回车时触发运行按钮
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && event.shiftKey) {
+        event.preventDefault();
+        input.value += "\n";
+      }
+      else if (event.key === "Enter") {
+        event.preventDefault();
+        runButton.click();
+      }
+    });
+
+    // prompt按钮
+    prmtButton.addEventListener("click", function () {
+      console.log('prmtbutton！');
+      input.value += "!prompt ";
+    });
+    prmtButton.addEventListener("mousedown", function () {
+      prmtButton.style.backgroundColor = "blue";
+    });
+    prmtButton.addEventListener("mouseup", function () {
+      prmtButton.style.backgroundColor = "";
+    });
+    // 连接按钮
+    conButton.addEventListener("click", function () {
+      if(!isConnecting){
+        isConnecting = true;
+        webSocketConnect();
+        isConnecting = false;
+      }
+    });
+    conButton.addEventListener("mousedown", function () {
+      conButton.style.backgroundColor = "blue";
+    });
+    conButton.addEventListener("mouseup", function () {
+      conButton.style.backgroundColor = "";
+    });
+    // 声音开关
+    voiceButton.addEventListener("click", function () {
+      if(allowSpeak){ // 关闭声音
+        allowSpeak = false;
+        if (responsiveVoice.isPlaying()) {
+          responsiveVoice.cancel(); 
+        } 
+        voiceButton.innerHTML = "Unmu";
+      }else{ // 打开声音
+        allowSpeak = true;
+        voiceButton.innerHTML = "Mute";
+      }
+    });
+    output.scrollTop = output.scrollHeight;
+  </script>
+</body>
+
+</html>
